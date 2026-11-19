@@ -113,3 +113,27 @@ class TransformerBlock:
                 _layer_norm([value + projected[index] for index, value in enumerate(token)])
             )
         return transformed
+
+
+def quick_transform(
+    sequence: Sequence[Sequence[float]],
+    *,
+    layers: int = 1,
+    hidden_size: int | None = None,
+) -> Matrix:
+    """Transform numeric token vectors through one or more compact blocks."""
+    if layers <= 0:
+        raise ValueError("layers must be positive")
+    if not sequence:
+        return []
+
+    model_size = len(sequence[0])
+    if model_size == 0:
+        raise ValueError("token vectors cannot be empty")
+    output = [[float(value) for value in token] for token in sequence]
+    if any(len(token) != model_size for token in output):
+        raise ValueError("all token vectors must share a dimension")
+
+    for _ in range(layers):
+        output = TransformerBlock(model_size, hidden_size)(output)
+    return output
