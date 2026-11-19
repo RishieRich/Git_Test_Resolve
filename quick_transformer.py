@@ -58,3 +58,58 @@ def scaled_dot_product_attention(
             ]
         )
     return attended
+
+
+def _layer_norm(vector: Sequence[float], epsilon: float = 1e-5) -> Vector:
+    mean = sum(vector) / len(vector)
+    variance = sum((value - mean) ** 2 for value in vector) / len(vector)
+    scale = math.sqrt(variance + epsilon)
+    return [(value - mean) / scale for value in vector]
+
+
+def _linear(vector: Sequence[float], weights: Matrix) -> Vector:
+    return [_dot(vector, row) for row in weights]
+
+
+class TransformerBlock:
+    """A small self-attention block with residuals and a feed-forward layer."""
+
+    def __init__(self, model_size: int, hidden_size: int | None = None) -> None:
+        if model_size <= 0:
+            raise ValueError("model_size must be positive")
+        self.model_size = model_size
+        self.hidden_size = hidden_size or model_size * 2
+        if self.hidden_size <= 0:
+            raise ValueError("hidden_size must be positive")
+
+        model_scale = math.sqrt(model_size)
+        hidden_scale = math.sqrt(self.hidden_size)
+        self.input_weights = [
+            [math.sin((row + 1) * (column + 1)) / model_scale for column in range(model_size)]
+            for row in range(self.hidden_size)
+        ]
+        self.output_weights = [
+            [math.cos((row + 1) * (column + 1)) / hidden_scale for column in range(self.hidden_size)]
+            for row in range(model_size)
+        ]
+
+    def __call__(self, sequence: Sequence[Sequence[float]]) -> Matrix:
+        if not sequence:
+            return []
+        if any(len(token) != self.model_size for token in sequence):
+            raise ValueError("every token must match model_size")
+
+        contexts = scaled_dot_product_attention(sequence, sequence, sequence)
+        attended = [
+            _layer_norm([value + context[index] for index, value in enumerate(token)])
+            for token, context in zip(sequence, contexts)
+        ]
+
+        transformed: Matrix = []
+        for token in attended:
+            hidden = [max(0.0, value) for value in _linear(token, self.input_weights)]
+            projected = _linear(hidden, self.output_weights)
+            transformed.append(
+                _layer_norm([value + projected[index] for index, value in enumerate(token)])
+            )
+        return transformed
